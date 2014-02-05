@@ -313,7 +313,7 @@ function jsonld_default_document_loader($url) {
       'jsonld.LoadDocumentError', 'loading document failed');
   }
   $link_header = array();
-  foreach($http_response_header as $header) {
+  if (isset($http_response_header)) foreach($http_response_header as $header) {
     if(strpos($header, 'link') === 0) {
       $value = explode(': ', $header);
       if(count($value) > 1) {
@@ -5171,7 +5171,7 @@ class JsonLdProcessor {
     $urls = new stdClass();
 
     // regex for validating URLs
-    $regex = '/(http|https):\/\/(\w+:{0,1}\w*@)?(\S+)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!\-\/]))?/';
+    $regex = '/(http|https|file):\/\/(\w+:{0,1}\w*@)?(\S+)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!\-\/]))?/';
 
     // find all URLs in the given input
     $this->_findContextUrls($input, $urls, false, $base);
