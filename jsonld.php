@@ -1320,6 +1320,9 @@ class JsonLdProcessor {
       if($options['format'] === 'application/nquads') {
         $rval = self::toNQuads($dataset);
       }
+      if($options['format'] === 'application/ntriples') {
+        $rval = self::toNTriples($dataset);
+      }
       else {
         throw new JsonLdException(
           'Unknown output format.', 'jsonld.UnknownFormat',
@@ -1765,6 +1768,24 @@ class JsonLdProcessor {
     }
     sort($quads);
     return implode($quads);
+  }
+
+  /**
+   * Converts an RDF dataset to N-Triples, ignoring the graph name.
+   *
+   * @param stdClass $dataset the RDF dataset to convert.
+   *
+   * @return string the N-Triples string.
+   */
+  public static function toNTriples($dataset) {
+    $ntriples = array();
+    foreach($dataset as $graph_name => $triples) {
+      foreach($triples as $triple) {
+        $ntriples[] = self::toNQuad($triple, null);
+      }
+    }
+    sort($ntriples);
+    return implode($ntriples);
   }
 
   /**
