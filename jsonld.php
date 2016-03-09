@@ -5743,7 +5743,7 @@ class UniqueNamer {
     }
 
     // get next name
-    $name = $this->prefix . $this->counter;
+    $name = $this->prefix . uniqid();
     $this->counter += 1;
 
     // save mapping
