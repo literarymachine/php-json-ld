@@ -4,7 +4,7 @@
  *
  * @author Dave Longley
  *
- * Copyright (c) 2013 Digital Bazaar, Inc. All rights reserved.
+ * Copyright (c) 2013-2014 Digital Bazaar, Inc. All rights reserved.
  */
 require_once('jsonld.php');
 
@@ -28,6 +28,7 @@ class JsonLdTestCase extends PHPUnit_Framework_TestCase {
    * @param JsonLdTest $test the test to run.
    *
    * @group expand
+   * @group json-ld.org
    * @dataProvider expandProvider
    */
   public function testExpand($test) {
@@ -43,6 +44,7 @@ class JsonLdTestCase extends PHPUnit_Framework_TestCase {
    * @param JsonLdTest $test the test to run.
    *
    * @group compact
+   * @group json-ld.org
    * @dataProvider compactProvider
    */
   public function testCompact($test) {
@@ -59,6 +61,7 @@ class JsonLdTestCase extends PHPUnit_Framework_TestCase {
    * @param JsonLdTest $test the test to run.
    *
    * @group flatten
+   * @group json-ld.org
    * @dataProvider flattenProvider
    */
   public function testFlatten($test) {
@@ -75,6 +78,7 @@ class JsonLdTestCase extends PHPUnit_Framework_TestCase {
    * @param JsonLdTest $test the test to run.
    *
    * @group toRdf
+   * @group json-ld.org
    * @dataProvider toRdfProvider
    */
   public function testToRdf($test) {
@@ -90,6 +94,7 @@ class JsonLdTestCase extends PHPUnit_Framework_TestCase {
    * @param JsonLdTest $test the test to run.
    *
    * @group fromRdf
+   * @group json-ld.org
    * @dataProvider fromRdfProvider
    */
   public function testFromRdf($test) {
@@ -105,6 +110,7 @@ class JsonLdTestCase extends PHPUnit_Framework_TestCase {
    * @param JsonLdTest $test the test to run.
    *
    * @group frame
+   * @group json-ld.org
    * @dataProvider frameProvider
    */
   public function testFrame($test) {
@@ -121,12 +127,51 @@ class JsonLdTestCase extends PHPUnit_Framework_TestCase {
    * @param JsonLdTest $test the test to run.
    *
    * @group normalize
+   * @group json-ld.org
    * @dataProvider normalizeProvider
    */
   public function testNormalize($test) {
     $this->test = $test;
     $input = $test->readUrl('input');
     $options = $test->createOptions(array('format' => 'application/nquads'));
+    $test->run('jsonld_normalize', array($input, $options));
+  }
+
+  /**
+   * Tests URGNA2012 normalization.
+   *
+   * @param JsonLdTest $test the test to run.
+   *
+   * @group normalize
+   * @group normalization
+   * @dataProvider urgna2012Provider
+   */
+  public function testUrgna2012($test) {
+    $this->test = $test;
+    $input = $test->readProperty('action');
+    $options = $test->createOptions(array(
+      'algorithm' => 'URGNA2012',
+      'inputFormat' => 'application/nquads',
+      'format' => 'application/nquads'));
+    $test->run('jsonld_normalize', array($input, $options));
+  }
+
+  /**
+   * Tests URDNA2015 normalization.
+   *
+   * @param JsonLdTest $test the test to run.
+   *
+   * @group normalize
+   * @group normalization
+   * @dataProvider urdna2015Provider
+   */
+  public function testUrdna2015($test) {
+    $this->test = $test;
+    $input = $test->readProperty('action');
+    $options = $test->createOptions(array(
+      'algorithm' => 'URDNA2015',
+      'inputFormat' => 'application/nquads',
+      'format' => 'application/nquads'));
     $test->run('jsonld_normalize', array($input, $options));
   }
 
@@ -157,6 +202,14 @@ class JsonLdTestCase extends PHPUnit_Framework_TestCase {
   public function frameProvider() {
     return new JsonLdTestIterator('jld:FrameTest');
   }
+
+  public function urgna2012Provider() {
+    return new JsonLdTestIterator('rdfn:Urgna2012EvalTest');
+  }
+
+  public function urdna2015Provider() {
+    return new JsonLdTestIterator('rdfn:Urdna2015EvalTest');
+  }
 }
 
 class JsonLdManifest {
@@ -167,26 +220,33 @@ class JsonLdManifest {
   }
 
   public function load(&$tests) {
-    $sequence = JsonLdProcessor::getValues($this->data, 'sequence');
-    foreach($sequence as $entry) {
+    $entries = array_merge(
+      JsonLdProcessor::getValues($this->data, 'sequence'),
+      JsonLdProcessor::getValues($this->data, 'entries'));
+    $includes = JsonLdProcessor::getValues($this->data, 'include');
+    foreach($includes as $include) {
+      array_push($entries, $include . '.jsonld');
+    }
+    foreach($entries as $entry) {
       if(is_string($entry)) {
         $filename = join(
           DIRECTORY_SEPARATOR, array($this->dirname, $entry));
         $entry = Util::readJson($filename);
-      }
-      else {
+      } else {
         $filename = $this->filename;
       }
 
-      // entry is another manifest
-      if(JsonLdProcessor::hasValue($entry, '@type', 'mf:Manifest')) {
+      if(JsonLdProcessor::hasValue($entry, '@type', 'mf:Manifest') ||
+        JsonLdProcessor::hasValue($entry, 'type', 'mf:Manifest')) {
+        // entry is another manifest
         $manifest = new JsonLdManifest($entry, $filename);
         $manifest->load($tests);
-      }
-      // assume entry is a test
-      else {
+      } else {
+        // assume entry is a test
         $test = new JsonLdTest($this, $entry, $filename);
-        $types = JsonLdProcessor::getValues($test->data, '@type');
+        $types = array_merge(
+           JsonLdProcessor::getValues($test->data, '@type'),
+           JsonLdProcessor::getValues($test->data, 'type'));
         foreach($types as $type) {
           if(!isset($tests[$type])) {
             $tests[$type] = array();
@@ -204,28 +264,64 @@ class JsonLdTest {
     $this->data = $data;
     $this->filename = $filename;
     $this->dirname = dirname($filename);
-    $this->isPositive = JsonLdProcessor::hasValue(
-      $data, '@type', 'jld:PositiveEvaluationTest');
-    $this->isNegative = JsonLdProcessor::hasValue(
-      $data, '@type', 'jld:NegativeEvaluationTest');
+    $this->isPositive =
+      JsonLdProcessor::hasValue(
+        $data, '@type', 'jld:PositiveEvaluationTest') ||
+      JsonLdProcessor::hasValue(
+        $data, 'type', 'jld:PositiveEvaluationTest');
+    $this->isNegative =
+      JsonLdProcessor::hasValue(
+        $data, '@type', 'jld:NegativeEvaluationTest') ||
+      JsonLdProcessor::hasValue(
+        $data, 'type', 'jld:NegativeEvaluationTest');
 
     // generate test name
-    $this->name = $manifest->data->name . ' ' . substr($data->{'@id'}, 2) .
-      ' - ' . $this->data->name;
+    if(isset($manifest->data->name)) {
+      $manifestLabel = $manifest->data->name;
+    } else if(isset($manifest->data->label)) {
+      $manifestLabel = $manifest->data->label;
+    } else {
+      $manifestLabel = 'UNNAMED';
+    }
+    if(isset($this->data->id)) {
+      $testId = $this->data->id;
+    } else {
+      $testId = $this->data->{'@id'};
+    }
+    if(isset($this->data->name)) {
+      $testLabel = $this->data->name;
+    } else if(isset($this->data->label)) {
+      $testLabel = $this->data->label;
+    } else {
+      $testLabel = 'UNNAMED';
+    }
+    
+    $this->name = $manifestLabel . ' ' . $testId . ' - ' . $testLabel;
 
     // expand @id and input base
-    $data->{'@id'} = ($manifest->data->baseIri .
-      basename($manifest->filename) . $data->{'@id'});
-    $this->base = $manifest->data->baseIri . $data->input;
+    if(isset($manifest->data->baseIri)) {
+      $data->{'@id'} = ($manifest->data->baseIri .
+        basename($manifest->filename) . $data->{'@id'});
+      $this->base = $manifest->data->baseIri . $data->input;
+    }
+  }
+
+  private function _getResultProperty() {
+    if(isset($this->data->expect)) {
+      return 'expect';
+    } else if(isset($this->data->result)) {
+      return 'result';
+    } else {
+      throw new Exception('No test result property found.');
+    }
   }
 
   public function run($fn, $params) {
     // read expected data
     if($this->isNegative) {
       $this->expected = $this->data->expect;
-    }
-    else {
-      $this->expected = $this->readProperty('expect');
+    } else {
+      $this->expected = $this->readProperty($this->_getResultProperty());
     }
 
     try {
@@ -234,13 +330,15 @@ class JsonLdTest {
         throw new Exception('Expected an error; one was not raised.');
       }
       PHPUnit_Framework_TestCase::assertEquals($this->expected, $this->actual);
-    }
-    catch(Exception $e) {
-      if($this->isPositive) {
+    } catch(Exception $e) {
+     // assume positive test
+      if($this->isNegative) {
+        $this->actual = $this->getJsonLdErrorCode($e);
+        PHPUnit_Framework_TestCase::assertEquals(
+          $this->expected, $this->actual);
+      } else {
         throw $e;
       }
-      $this->actual = $this->getJsonLdErrorCode($e);
-      PHPUnit_Framework_TestCase::assertEquals($this->expected, $this->actual);
     }
   }
 
@@ -299,10 +397,9 @@ class JsonLdTest {
         if(property_exists($options, 'redirectTo') &&
           property_exists($options, 'httpStatus') &&
           $options->httpStatus >= '300') {
-          $doc->documentUrl = ($test->manifest->data->{'baseIri'} .
+          $doc->documentUrl = ($test->manifest->data->baseIri .
             $options->redirectTo);
-        }
-        else if(property_exists($options, 'httpLink')) {
+        } else if(property_exists($options, 'httpLink')) {
           $content_type = (property_exists($options, 'contentType') ?
             $options->contentType : null);
           $extension = pathinfo($url, PATHINFO_EXTENSION);
@@ -316,25 +413,31 @@ class JsonLdTest {
           $link_header = jsonld_parse_link_header($link_header);
           if(isset($link_header['http://www.w3.org/ns/json-ld#context'])) {
             $link_header = $link_header['http://www.w3.org/ns/json-ld#context'];
-          }
-          else {
+          } else {
             $link_header = null;
           }
           if($link_header && $content_type !== 'application/ld+json') {
             if(is_array($link_header)) {
               throw new Exception('multiple context link headers');
             }
-            $doc->{'contextUrl'} = $link_header->target;
+            $doc->contextUrl = $link_header->target;
           }
         }
       }
       global $ROOT_MANIFEST_DIR;
-      $filename = $ROOT_MANIFEST_DIR .
-        substr($doc->{'documentUrl'}, strlen($base));
-      try {
-        $doc->{'document'} = Util::readJson($filename);
+      if(strpos($doc->documentUrl, ':') === false) {
+        $filename = join(
+          DIRECTORY_SEPARATOR, array(
+            $ROOT_MANIFEST_DIR, $doc->documentUrl));
+        $doc->documentUrl = 'file://' . $filename;
+      } else {
+        $filename = join(
+          DIRECTORY_SEPARATOR, array(
+            $ROOT_MANIFEST_DIR, substr($doc->documentUrl, strlen($base))));
       }
-      catch(Exception $e) {
+      try {
+        $doc->document = Util::readJson($filename);
+      } catch(Exception $e) {
         throw new Exception('loading document failed');
       }
       return $doc;
@@ -342,7 +445,7 @@ class JsonLdTest {
 
     $local_loader = function($url) use ($test, $base, $load_locally) {
       // always load remote-doc and non-base tests remotely
-      if(strpos($url, $base) !== 0 ||
+      if((strpos($url, $base) !== 0 && strpos($url, ':') !== false) ||
         $test->manifest->data->name === 'Remote document') {
         return call_user_func('jsonld_default_document_loader', $url);
       }
@@ -387,8 +490,7 @@ class JsonLdTestIterator implements Iterator {
     global $TESTS;
     if(isset($TESTS[$type])) {
       $this->tests = $TESTS[$type];
-    }
-    else {
+    } else {
       $this->tests = array();
     }
     $this->count = count($this->tests);
@@ -541,8 +643,15 @@ class EarlReport extends PHPUnit_Util_Printer
     PHPUnit_Framework_AssertionFailedError $e, $time) {
     $this->addAssertion($test->test, false);
     if($test->result->shouldStop()) {
+      if(isset($test->test->name)) {
+        $name = $test->test->name;
+      } else if(isset($test->test->label)) {
+        $name = $test->test->label;
+      } else {
+        $name = 'UNNAMED';
+      }
       printf("\n\nFAILED\n");
-      printf("Test: %s\n", $test->test->name);
+      printf("Test: %s\n", $name);
       printf("Purpose: %s\n", $test->test->data->purpose);
       printf("EXPECTED: %s\n", Util::jsonldEncode($test->test->expected));
       printf("ACTUAL: %s\n", Util::jsonldEncode($test->test->actual));
@@ -554,6 +663,8 @@ class EarlReport extends PHPUnit_Util_Printer
     $this->addAssertion($test->test, false);
   }
 
+  public function addRiskyTest(
+    PHPUnit_Framework_Test $test, Exception $e, $time) {}
   public function addSkippedTest(
     PHPUnit_Framework_Test $test, Exception $e, $time) {}
   public function startTest(PHPUnit_Framework_Test $test) {}
@@ -590,8 +701,7 @@ class Util {
         $options |= JSON_PRETTY_PRINT;
       }
       $json = json_encode($input, $options);
-    }
-    else {
+    } else {
       // use a simple string replacement of '\/' to '/'.
       $json = str_replace('\\/', '/', json_encode($input));
     }
